@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+   <meta charset="UTF-8">
+   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+   <title>Chỉnh text OCR — Manga Translator</title>
+   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+   <link href="https://fonts.googleapis.com/css2?family=Exo+2:ital,wght@0,100..900;1,100..900&display=swap"
+      rel="stylesheet">
+   <style>
+      .ocr-page-block {
+         margin-bottom: 40px;
+         border-bottom: 2px solid #ddd;
+         padding-bottom: 30px;
+      }
+      
+      .ocr-page-title {
+         margin-bottom: 12px;
+      }
+      
+      /* Image container với overlay */
+      .ocr-image-container {
+         position: relative;
+         display: inline-block;
+         max-width: 100%;
+         margin-bottom: 20px;
+         line-height: 0;
+      }
+      
+      .ocr-image-container img {
+         display: block;
+         max-width: 100%;
+         height: auto;
+         vertical-align: top;
+         border-radius: 8px;
+         box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      }
+      
+      /* Overlay khớp ảnh (canvas id là bubbleOverlay_0, … nên không dùng #bubbleOverlay) */
+      .ocr-image-container .clickable-overlay {
+         position: absolute;
+         top: 0;
+         left: 0;
+         z-index: 2;
+         border-radius: 8px;
+         overflow: visible;
+      }
+      
+      .bubble-box {
+         position: absolute;
+         border: 3px solid;
+         border-radius: 4px;
+         cursor: pointer;
+         pointer-events: auto;
+         transition: all 0.2s ease;
+         background: rgba(255, 255, 255, 0.1);
+      }
+      
+      .bubble-box:hover,
+      .bubble-box.active {
+         background: rgba(255, 255, 255, 0.3);
+         transform: scale(1.02);
+      }
+      
+      .bubble-box.active {
+         box-shadow: 0 0 0 3px #ffd700, 0 0 15px rgba(255, 215, 0, 0.5);
+      }
+      
+      .bubble-label {
+         position: absolute;
+         top: -24px;
+         left: -3px;
+         background: var(--bubble-color, #e74c3c);
+         color: white;
+         padding: 2px 8px;
+         border-radius: 4px 4px 0 0;
+         font-size: 12px;
+         font-weight: bold;
+         white-space: nowrap;
+      }
+      
+      /* Text list container */
+      .ocr-text-list {
+         display: flex;
+         flex-direction: column;
+         gap: 16px;
+      }
+      
+      .ocr-bubble-row {
+         display: grid;
+         grid-template-columns: 1fr 1fr;
+         gap: 20px;
+         padding: 16px;
+         border-radius: 12px;
+         border: 2px solid #e0e0e0;
+         background: #fafafa;
+         transition: all 0.2s ease;
+      }
+      
+      .ocr-bubble-row:hover {
+         border-color: #b0b0b0;
+         background: #f5f5f5;
+      }
+      
+      .ocr-bubble-row.active {
+         border-color: var(--active-color, #e74c3c);
+         background: #fff;
+         box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      }
+      
+      .ocr-bubble-col {
+         display: flex;
+         flex-direction: column;
+         gap: 6px;
+      }
+      
+      .ocr-bubble-col label {
+         font-weight: 600;
+         font-size: 13px;
+         color: #555;
+         display: flex;
+         align-items: center;
+         gap: 6px;
+      }
+      
+      .ocr-bubble-col label .bubble-num {
+         display: inline-flex;
+         align-items: center;
+         justify-content: center;
+         width: 22px;
+         height: 22px;
+         background: var(--bubble-color, #e74c3c);
+         color: white;
+         border-radius: 50%;
+         font-size: 11px;
+         font-weight: bold;
+      }
+      
+      .ocr-bubble-col textarea {
+         width: 100%;
+         padding: 12px;
+         border: 1px solid #ccc;
+         border-radius: 8px;
+         font-family: inherit;
+         font-size: 14px;
+         line-height: 1.5;
+         resize: vertical;
+         min-height: 80px;
+         transition: border-color 0.2s;
+      }
+      
+      .ocr-bubble-col textarea:focus {
+         outline: none;
+         border-color: var(--active-color, #3498db);
+         box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.2);
+      }
+      
+      .ocr-bubble-col textarea[readonly] {
+         background: #f0f0f0;
+         color: #666;
+      }
+      
+      .ocr-demo-col {
+         position: relative;
+      }
+      
+      .ocr-demo-col label::after {
+         content: '⚡';
+         font-size: 11px;
+      }
+      
+      .ocr-review-actions {
+         display: flex;
+         gap: 16px;
+         justify-content: center;
+         margin-top: 30px;
+         padding-top: 20px;
+         border-top: 2px solid #eee;
+      }
+      
+      .btn-primary-action {
+         background: linear-gradient(135deg, #3498db, #2980b9);
+         color: white;
+         padding: 14px 32px;
+         border: none;
+         border-radius: 8px;
+         font-size: 16px;
+         font-weight: 600;
+         cursor: pointer;
+         transition: all 0.2s;
+         display: flex;
+         align-items: center;
+         gap: 8px;
+      }
+      
+      .btn-primary-action:hover {
+         transform: translateY(-2px);
+         box-shadow: 0 4px 12px rgba(52, 152, 219, 0.4);
+      }
+      
+      .btn-secondary-action {
+         background: #ecf0f1;
+         color: #555;
+         padding: 14px 24px;
+         border-radius: 8px;
+         text-decoration: none;
+         font-weight: 500;
+         transition: all 0.2s;
+         display: flex;
+         align-items: center;
+         gap: 6px;
+      }
+      
+      .btn-secondary-action:hover {
+         background: #bdc3c7;
+         color: #2c3e50;
+      }
+      
+      /* Scroll to highlight animation */
+      @keyframes highlightPulse {
+         0%, 100% { box-shadow: 0 0 0 0 transparent; }
+         50% { box-shadow: 0 0 0 4px rgba(231, 76, 60, 0.4); }
+      }
+      
+      .ocr-bubble-row.just-highlighted {
+         animation: highlightPulse 0.6s ease 2;
+      }
+      
+      .info-text {
+         text-align: center;
+         color: #555;
+         font-size: 14px;
+         margin-bottom: 8px;
+      }
+      
+      .info-text-hint {
+         text-align: center;
+         color: #888;
+         font-size: 13px;
+         margin-bottom: 24px;
+      }
+   </style>
+</head>
+
+<body>
+   <div class="ocr-review-container">
+      <h2 class="results-title" style="margin-top:0;">✏️ Kiểm tra & chỉnh text OCR</h2>
+      <p class="info-text">
+         Ảnh bên trên: vị trí các bubble được đánh dấu. Click vào bubble để highlight text tương ứng bên dưới.
+      </p>
+      <p class="info-text-hint">
+         Cột trái: text OCR (sửa được). Cột phải: <strong>bản dịch demo</strong>. Nếu sửa OCR, bản demo không tự cập nhật.
+      </p>
+
+      <form action="{{ url_for('complete_translation') }}" method="post">
+         <input type="hidden" name="job_id" value="{{ job_id }}">
+
+         {% for p in pages %}
+         <div class="ocr-page-block" id="page_{{ p.index }}" data-bubbles='{{ p.bubbles_json | tojson }}'>
+            <input type="hidden" name="page_name_{{ p.index }}" value="{{ p.name }}">
+            <input type="hidden" name="bubble_count_{{ p.index }}" value="{{ p.bubble_count }}">
+
+            <h3 class="ocr-page-title">📄 {{ p.name }} — {{ p.bubble_count }} bubble</h3>
+            
+            {% if p.bubble_count == 0 %}
+            <p style="color:#888;font-size:14px;">Không phát hiện speech bubble trên ảnh này.</p>
+            {% else %}
+            
+            <!-- Image với bubble overlay -->
+            <div class="ocr-image-container" id="imgContainer_{{ p.index }}">
+               <img id="mainImg_{{ p.index }}" src="data:image/jpeg;base64,{{ p.image_b64 }}" alt="{{ p.name }}">
+            </div>
+            
+            <!-- Text list bên dưới -->
+            <div class="ocr-text-list" id="textList_{{ p.index }}">
+               {% for t in p.texts %}
+               <div class="ocr-bubble-row" id="row_{{ p.index }}_{{ loop.index0 }}" 
+                    data-bubble-index="{{ loop.index0 }}"
+                    style="--bubble-color: hsl({{ (loop.index0 * 137) % 360 }}, 70%, 50%);">
+                  <div class="ocr-bubble-col">
+                     <label for="ocr_{{ p.index }}_{{ loop.index0 }}">
+                        <span class="bubble-num" style="background: hsl({{ (loop.index0 * 137) % 360 }}, 70%, 50%);">{{ loop.index }}</span>
+                        Bubble {{ loop.index }} — OCR
+                     </label>
+                     <textarea id="ocr_{{ p.index }}_{{ loop.index0 }}" name="ocr_{{ p.index }}_{{ loop.index0 }}"
+                        rows="3">{{ t }}</textarea>
+                  </div>
+                  <div class="ocr-bubble-col ocr-demo-col" style="--active-color: hsl({{ (loop.index0 * 137) % 360 }}, 70%, 50%);">
+                     <label for="demo_{{ p.index }}_{{ loop.index0 }}">
+                        Bản dịch demo
+                     </label>
+                     <textarea id="demo_{{ p.index }}_{{ loop.index0 }}" class="ocr-demo-textarea" rows="3" readonly
+                        spellcheck="false">{{ p.demo_texts[loop.index0] if p.demo_texts else '' }}</textarea>
+                  </div>
+               </div>
+               {% endfor %}
+            </div>
+            
+            {% endif %}
+         </div>
+         {% endfor %}
+
+         <div class="ocr-review-actions">
+            <button type="submit" class="btn-primary-action">🌐 Dịch với text đã chỉnh</button>
+            <a href="{{ url_for('home') }}" class="btn-secondary-action">← Quay lại</a>
+         </div>
+      </form>
+   </div>
+
+   <script>
+      // Màu sắc cho các bubble
+      const bubbleColors = [
+         '#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6',
+         '#1abc9c', '#e91e63', '#00bcd4', '#ff5722', '#607d8b'
+      ];
+      
+      // Lưu trữ thông tin bubble cho mỗi trang
+      const pageBubbles = {};
+      
+      function drawBubbles(pageIndex, bubbles) {
+         if (!bubbles || bubbles.length === 0) return;
+         
+         const img = document.getElementById('mainImg_' + pageIndex);
+         const container = document.getElementById('imgContainer_' + pageIndex);
+         
+         if (!img || !container) return;
+         
+         pageBubbles[pageIndex] = bubbles;
+         
+         if (container.dataset.bubblesReady === '1') return;
+         
+         let layoutAttempts = 0;
+         const placeOverlay = () => {
+            if (container.dataset.bubblesReady === '1') return;
+            if (!img.complete || img.naturalWidth === 0) return;
+            const dw = img.clientWidth;
+            const dh = img.clientHeight;
+            if (dw < 2 || dh < 2) {
+               layoutAttempts += 1;
+               if (layoutAttempts < 90) {
+                  requestAnimationFrame(placeOverlay);
+               }
+               return;
+            }
+            container.dataset.bubblesReady = '1';
+            const scaleX = dw / img.naturalWidth;
+            const scaleY = dh / img.naturalHeight;
+            createClickableOverlay(pageIndex, bubbles, scaleX, scaleY);
+         };
+         
+         const schedule = () => {
+            requestAnimationFrame(() => {
+               requestAnimationFrame(placeOverlay);
+            });
+         };
+         
+         if (!img.complete || img.naturalWidth === 0) {
+            img.addEventListener('load', schedule, { once: true });
+            return;
+         }
+         schedule();
+      }
+      
+      function createClickableOverlay(pageIndex, bubbles, scaleX, scaleY) {
+         const container = document.getElementById('imgContainer_' + pageIndex);
+         const img = document.getElementById('mainImg_' + pageIndex);
+         
+         // Xóa overlay cũ nếu có
+         const oldOverlay = container.querySelector('.clickable-overlay');
+         if (oldOverlay) oldOverlay.remove();
+         
+         // Tạo overlay mới
+         const overlay = document.createElement('div');
+         overlay.className = 'clickable-overlay';
+         overlay.style.cssText = `
+            width: ${img.clientWidth}px;
+            height: ${img.clientHeight}px;
+            pointer-events: none;
+         `;
+         
+         bubbles.forEach((bubble, idx) => {
+            const color = bubbleColors[idx % bubbleColors.length];
+            const x = bubble.x * scaleX;
+            const y = bubble.y * scaleY;
+            const w = bubble.width * scaleX;
+            const h = bubble.height * scaleY;
+            
+            const box = document.createElement('div');
+            box.className = 'bubble-box';
+            box.dataset.pageIndex = pageIndex;
+            box.dataset.bubbleIndex = idx;
+            box.style.cssText = `
+               left: ${x}px;
+               top: ${y}px;
+               width: ${w}px;
+               height: ${h}px;
+               border-color: ${color};
+               --bubble-color: ${color};
+            `;
+            
+            const label = document.createElement('span');
+            label.className = 'bubble-label';
+            label.style.background = color;
+            label.textContent = (idx + 1).toString();
+            box.appendChild(label);
+            
+            box.addEventListener('click', () => highlightBubbleRow(pageIndex, idx));
+            
+            overlay.appendChild(box);
+         });
+         
+         container.appendChild(overlay);
+      }
+      
+      function highlightBubbleRow(pageIndex, bubbleIndex) {
+         // Bỏ active tất cả
+         document.querySelectorAll('.bubble-box.active').forEach(el => el.classList.remove('active'));
+         document.querySelectorAll('.ocr-bubble-row.active').forEach(el => el.classList.remove('active'));
+         
+         // Active bubble box
+         const bubbleBox = document.querySelector(
+            `.bubble-box[data-page-index="${pageIndex}"][data-bubble-index="${bubbleIndex}"]`
+         );
+         if (bubbleBox) {
+            bubbleBox.classList.add('active');
+         }
+         
+         // Active row tương ứng
+         const row = document.getElementById(`row_${pageIndex}_${bubbleIndex}`);
+         if (row) {
+            row.classList.add('active');
+            row.classList.add('just-highlighted');
+            
+            // Scroll to row
+            row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            
+            // Remove animation class after animation completes
+            setTimeout(() => row.classList.remove('just-highlighted'), 1500);
+         }
+      }
+      
+      // Khi click vào row thì highlight bubble trên ảnh
+      document.querySelectorAll('.ocr-bubble-row').forEach(row => {
+         row.addEventListener('click', () => {
+            const parts = row.id.split('_');
+            const pageIndex = parts[1];
+            const bubbleIndex = parts[2];
+            highlightBubbleRow(pageIndex, bubbleIndex);
+         });
+      });
+      
+      // Initialize all bubbles on page load
+      function initAllBubbles() {
+         document.querySelectorAll('.ocr-page-block').forEach(pageBlock => {
+            const match = pageBlock.id.match(/page_(\d+)/);
+            if (match) {
+               const pageIndex = match[1];
+               const bubblesJson = pageBlock.dataset.bubbles;
+               if (bubblesJson) {
+                  try {
+                     const bubbles = JSON.parse(bubblesJson);
+                     drawBubbles(pageIndex, bubbles);
+                  } catch (e) {
+                     console.error('Failed to parse bubbles for page', pageIndex, e);
+                  }
+               }
+            }
+         });
+      }
+      
+      // Chạy khi DOM ready
+      if (document.readyState === 'loading') {
+         document.addEventListener('DOMContentLoaded', initAllBubbles);
+      } else {
+         initAllBubbles();
+      }
+   </script>
+</body>
+
+</html>
