@@ -250,7 +250,7 @@
          Ảnh bên trên: vị trí các bubble được đánh dấu. Click vào bubble để highlight text tương ứng bên dưới.
       </p>
       <p class="info-text-hint">
-         Cột trái: text OCR (sửa được). Cột phải: <strong>bản dịch demo</strong>. Nếu sửa OCR, bản demo không tự cập nhật.
+         Cột trái: text OCR (sửa được). Cột phải: <strong>bản dịch demo</strong> (có thể sửa). Nếu muốn chỉnh bản dịch, hãy sửa trực tiếp ở cột demo.
       </p>
 
       <form action="{{ url_for('complete_translation') }}" method="post">
@@ -290,8 +290,10 @@
                      <label for="demo_{{ p.index }}_{{ loop.index0 }}">
                         Bản dịch demo
                      </label>
-                     <textarea id="demo_{{ p.index }}_{{ loop.index0 }}" class="ocr-demo-textarea" rows="3" readonly
+                     <textarea id="demo_{{ p.index }}_{{ loop.index0 }}" class="ocr-demo-textarea" name="demo_{{ p.index }}_{{ loop.index0 }}" rows="3"
                         spellcheck="false">{{ p.demo_texts[loop.index0] if p.demo_texts else '' }}</textarea>
+                     <input type="hidden" name="demo_original_{{ p.index }}_{{ loop.index0 }}"
+                        value="{{ (p.demo_texts[loop.index0] if p.demo_texts else '') | e }}">
                   </div>
                </div>
                {% endfor %}

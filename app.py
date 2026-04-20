@@ -677,6 +677,7 @@ def translation_and_render_gemini_copilot(
     batch_size=10,
     use_context_memory=True,
     total_images=None,
+    manual_demo_overrides=None,
 ):
     """Phase dịch + render cho Gemini / Local LLM (batch theo trang)."""
     if total_images is None:
@@ -703,11 +704,16 @@ def translation_and_render_gemini_copilot(
         translated_texts = all_translations.get(name) or []
         if len(translated_texts) != len(bubbles):
             translated_texts = data["texts"]
-        for bubble, text in zip(bubbles, translated_texts):
+        override_texts = (manual_demo_overrides or {}).get(name, [])
+        for bubble_idx, (bubble, text) in enumerate(zip(bubbles, translated_texts)):
+            manual_text = None
+            if bubble_idx < len(override_texts):
+                manual_text = override_texts[bubble_idx]
+            final_text = manual_text if manual_text is not None else text
             x1, y1, x2, y2 = bubble["coords"]
             bubble_region = image[y1:y2, x1:x2]
             text_color = (255, 255, 255) if bubble.get("is_dark", False) else (0, 0, 0)
-            add_text(bubble_region, text, font_path, bubble["contour"], text_color)
+            add_text(bubble_region, final_text, font_path, bubble["contour"], text_color)
         processed_results.append({"image": image, "name": name})
 
     _emit_progress_ws("done", total_images, total_images, "Hoàn tất")
@@ -768,7 +774,7 @@ def _translate_bubble_texts_single_page(texts_to_translate, manga_translator, se
 
 
 def translation_and_render_other_translators(
-    all_pages_data, manga_translator, selected_translator, selected_font, total_images=None
+    all_pages_data, manga_translator, selected_translator, selected_font, total_images=None, manual_demo_overrides=None
 ):
     """Dịch từng trang + render (NLLB, Google, Bing, …)."""
     if total_images is None:
@@ -817,11 +823,16 @@ def translation_and_render_other_translators(
         image = data["image"]
         bubbles = data["bubbles"]
         translated_texts = all_translations.get(name, data["texts"])
-        for bubble, text in zip(bubbles, translated_texts):
+        override_texts = (manual_demo_overrides or {}).get(name, [])
+        for bubble_idx, (bubble, text) in enumerate(zip(bubbles, translated_texts)):
+            manual_text = None
+            if bubble_idx < len(override_texts):
+                manual_text = override_texts[bubble_idx]
+            final_text = manual_text if manual_text is not None else text
             x1, y1, x2, y2 = bubble["coords"]
             bubble_region = image[y1:y2, x1:x2]
             text_color = (255, 255, 255) if bubble.get("is_dark", False) else (0, 0, 0)
-            add_text(bubble_region, text, font_path, bubble["contour"], text_color)
+            add_text(bubble_region, final_text, font_path, bubble["contour"], text_color)
         processed_results.append({"image": image, "name": name})
 
     _emit_progress_ws("done", total_images, total_images, "Hoàn tất")
@@ -955,6 +966,33 @@ def apply_ocr_edits_from_form(req, all_pages_data):
             texts = [req.form.get(f"ocr_{pi}_{bi}", "") for bi in range(n)]
             all_pages_data[name]["texts"] = texts
         pi += 1
+
+
+def extract_demo_overrides_from_form(req):
+    """
+    Lấy các chỉnh sửa thủ công ở cột demo:
+    - None: không thay đổi -> dùng bản dịch mới từ pipeline
+    - Chuỗi (kể cả rỗng): người dùng đã sửa -> ưu tiên dùng chuỗi này
+    """
+    overrides_by_page = {}
+    pi = 0
+    while f"page_name_{pi}" in req.form:
+        name = req.form[f"page_name_{pi}"]
+        try:
+            n = int(req.form.get(f"bubble_count_{pi}", "0"))
+        except ValueError:
+            n = 0
+        page_overrides = []
+        for bi in range(n):
+            curr = req.form.get(f"demo_{pi}_{bi}", "")
+            original = req.form.get(f"demo_original_{pi}_{bi}", "")
+            if curr != original:
+                page_overrides.append(curr)
+            else:
+                page_overrides.append(None)
+        overrides_by_page[name] = page_overrides
+        pi += 1
+    return overrides_by_page
 
 
 @app.route("/translate", methods=["POST"])
@@ -1326,6 +1364,7 @@ def complete_translation():
 
     all_pages_data = job["all_pages_data"]
     apply_ocr_edits_from_form(request, all_pages_data)
+    demo_overrides = extract_demo_overrides_from_form(request)
     originals_b64 = snapshot_originals_jpeg_b64_from_pages(all_pages_data)
 
     manga_translator = MangaTranslator(source=job["source_lang"], target=job["target_lang"])
@@ -1368,6 +1407,7 @@ def complete_translation():
             batch_size=job.get("batch_size", 10),
             use_context_memory=job["use_context_memory"],
             total_images=n_pages,
+            manual_demo_overrides=demo_overrides,
         )
     else:
         processed_results = translation_and_render_other_translators(
@@ -1376,6 +1416,7 @@ def complete_translation():
             st,
             job["selected_font"],
             total_images=n_pages,
+            manual_demo_overrides=demo_overrides,
         )
 
     processed_images = encode_gallery_items(
